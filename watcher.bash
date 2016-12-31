@@ -3,6 +3,45 @@
 source ../bashevents/emitter.bash
 
 
+fileFunc() {
+    
+    if [[ "${#FILES[@]}" -ge 1 ]];then
+	
+	for filesInArray in "${FILES[@]}";do
+	    
+	    # if the was added and for some reason it has been deleted
+	    #    the file no longer exist in the file system
+	    #    but the filename is inside the array
+	    if [[ -e "$filesInArray" ]];then
+		
+		
+		if [[ "$filesInArray" == "$files" ]];then
+		    echo "$files"
+		    sleep 5
+		    # since $filesInArray is equal to $files
+		    #   check if file has been changed
+		    #     if it has been changed
+		    #         emit the event
+		    return 0
+		fi
+		
+	    else
+		# file have been deleted or renamed or moved
+		unset FILES["$filesInArray"]
+		event emit deleteFile "'$filesInArray'"
+		return 5 ; # Return status of 5
+	    fi
+	    
+	    
+	done
+    fi
+    return 1
+    
+}
+
+directoryFunc() {
+    :
+}
 
 watcher() {
 
@@ -14,6 +53,8 @@ watcher() {
     fi
 
 
+
+    local files status
     # create an array to handle files
 
     declare -A FILES
@@ -41,42 +82,12 @@ watcher() {
 		
 		if [[ -f "${list}" ]];then
 		    
-		    local files="${list}"
+		    files="${list}"
 		    
-		    (
-			if [[ "${#FILES[@]}" -ge 1 ]];then
-			    
-			    for filesInArray in "${FILES[@]}";do
-
-				# if the was added and for some reason it has been deleted
-				#    the file no longer exist in the file system
-				#    but the filename is inside the array
-				if [[ -e "$filesInArray" ]];then
-				    
-				
-				    if [[ "$filesInArray" == "$files" ]];then
-
-					# since $filesInArray is equal to $files
-					#   check if file has been changed
-					#     if it has been changed
-					#         emit the event
-					exit 0
-				    fi
-				    
-				else
-				    # file have been deleted or renamed or moved
-				    event emit deleteFile "'$filesInArray'"
-				    exit 5 ; # Exit status of 5
-				fi
-				
-				
-			    done
-			fi
-			exit 1
-		    )
+		    fileFunc "$files"
 		    
-		    local status=$?
-
+		    status=$?
+		    
 		    case $status in
 			1)
 			    # pass in the path were the file was changed as first argument and the file name as second
@@ -85,16 +96,18 @@ watcher() {
 			    FILES["$files"]="$files"
 			    
 			    ;;
-			5)
-			    # Exit status of 5 means the file has been deleted
-			    # unset the file
-			    echo $status
-			    unset FILES["$files"]
-			    ;;
 		    esac
+
+		    continue
 		    
-		    
+		elif [[ -d "${list}" ]];then
+		    files="${list}"
+		    continue
 		fi
+		
+		# All the continue statement inside the above conditional statemnt was just to avoid using the
+		#    else conditional statement
+		event emit unwatchedFile "'${files}'"
 		
 	    done
 	    
@@ -117,13 +130,16 @@ df() {
     
     echo "file has been deleted $1"
 }
-       
+
+uf() {
+    echo "This file is not been watched $1"
+}
 event attach noExist ne
 event attach newFile nf
 event attach newDir nd
 event attach modifyFile mf
 event attach deleteFile df
-
+event attach unwatchedFile uf
 
 watcher "${@}"
 
