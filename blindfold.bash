@@ -2,6 +2,31 @@
 
 source ../bashevents/emitter.bash
 
+getFileStat() {
+
+    local currentFileSize="$(stat --format="%s" "$files" )"
+    declare -A FILESTAT
+
+    FILESTAT["group_id"]="$(stat --format="%g" "$files" )"
+    FILESTAT["group_name_owner"]="$(stat --format="%G" "$files" )"
+    
+    FILESTAT["user_id"]="$(stat --format="%u" "$files" )"
+    FILESTAT["user_name_owner"]="$(stat --format="%U" "$files" )"
+    
+    
+
+    if (( ${FILESIZE[$files]} != $currentFileSize ));then
+
+	FILESIZE["$files"]="$currentFileSize" ;# reinitialize the new size of the file and emit modifyFile event
+
+	event emit modifyFile "${files} ${FILESTAT[*]} ${FILESIZE["$files"]}"
+    fi
+    
+}
+
+getFilePermission() {
+    :
+}
 
 fileFunc() {
 
@@ -19,9 +44,9 @@ fileFunc() {
 		#     fileFunc is called in blindfold,
 		#    fileFunc now have access to all blindfold local variables
 		#                ***** think closure ****
-
+		
 		if [[ "$filesInArray" == "$files" ]];then
-
+		    getFileStat
 		    # since $filesInArray is equal to $files
 		    #   check if file has been changed
 		    #     if it has been changed
@@ -33,7 +58,7 @@ fileFunc() {
 		# file have been deleted or renamed or moved
 		unset FILES["$filesInArray"]
 		event emit deleteFile "'$filesInArray'"
-		return 0; # Return status of 5
+		return 5; # Return status of 5
 	    fi
 
 
@@ -75,11 +100,23 @@ blindfold() {
 	return 1
     fi
 
-
-
+    
     local files folder status
-    # create an array to handle files
+    
+    which stat 1>/dev/null
+    
+    status=$?
+    
+    (( status == 1 )) && {
+	printf "%s\n" "blindfold depends on stat"
+	printf "%s\n" "install stat then rerun this program"
+	exit 1;
+    }
 
+    # initialize the size
+    declare -A FILESIZE
+    # create an array to handle files
+    
     declare -A FILES
 
     # Set paths in an Array
@@ -152,6 +189,7 @@ blindfold() {
 			    #   argument, also pass in the file permission
 			event emit newFile "'${PATHS[$watchingPath]}' '${files}'"
 			FILES["$files"]="$files"
+			FILESIZE["$files"]="$(stat --format="%s" "$files" )"
 		    }
 
 		elif [[ -d "${list}" ]];then
@@ -189,7 +227,9 @@ nf() {
 nd() {
     echo "new directory $2"
 }
-mf() { : ;}
+mf() {
+    echo "${@}"
+}
 df() {
 
     echo "file has been deleted $1"
