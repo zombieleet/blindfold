@@ -1,110 +1,6 @@
 #!/usr/bin/env bash
 
-source ../bashevents/emitter.bash
-
-getFileStat() {
-
-    local currentFileSize="$(stat --format="%s" "$files" )"
-    declare -A FILESTAT
-
-    FILESTAT["group_id"]="$(stat --format="%g" "$files" )"
-    FILESTAT["group_name_owner"]="$(stat --format="%G" "$files" )"
-
-    FILESTAT["access_right"]="$(stat --format="%a" "$files" )"
-    
-    FILESTAT["user_id"]="$(stat --format="%u" "$files" )"
-    FILESTAT["user_name_owner"]="$(stat --format="%U" "$files" )"
-    
-    
-
-    if (( ${FILESIZE[$files]} != $currentFileSize ));then
-
-	FILESIZE["$files"]="$currentFileSize" ;# reinitialize the new size of the file and emit modifyFile event
-	
-	# pass in the file name as first argument
-	# group_id as second argument
-	# group_name_owner has third argument
-	# hexadecimal access_right as fourth argument
-	# user_id as fifth argument
-	# user_name_owner as sixth argument
-	# size of file as last argument
-	
-	event emit modifyFile "${files} ${FILESTAT[*]} ${FILESIZE["$files"]}"
-	
-    fi
-    
-}
-
-
-fileFunc() {
-
-    if [[ "${#FILES[@]}" -ge 1 ]];then
-
-	for filesInArray in "${FILES[@]}";do
-
-	    # if the was added and for some reason it has been deleted
-	    #    the file no longer exist in the file system
-	    #    but the filename is inside the array
-
-	    if [[ -e "$filesInArray" ]];then
-
-		# files is a local variable in blindfold, but since
-		#     fileFunc is called in blindfold,
-		#    fileFunc now have access to all blindfold local variables
-		#                ***** think closure ****
-		
-		if [[ "$filesInArray" == "$files" ]];then
-		    getFileStat
-		    # since $filesInArray is equal to $files
-		    #   check if file has been changed
-		    #     if it has been changed
-		    #         emit the event
-		    return 0
-		fi
-
-	    else
-		# file have been deleted or renamed or moved
-		unset FILES["$filesInArray"]
-		
-		# unsets the size of the file
-		unset FILESIZE["$filesInArray"]
-
-		# emit deleteFile event
-		# only argument is $filesInArray
-		event emit deleteFile "'$filesInArray'"
-		return 5; # Return status of 5
-	    fi
-
-
-	done
-    fi
-    return 1
-
-}
-
-directoryFunc() {
-
-    # The only interesting thing here is the return code
-    for folderInArray in "${PATHS[@]}";do
-
-	if [[ -e "${folderInArray}" ]];then
-	    # folder is a local variable in blindfold, but since
-	    #    directoryFunc is called in blindfold,
-	    #    directoryFunc now have access to all blindfold local variables
-	    #                ***** think closure ****
-	    if [[ "${folderInArray}" == "$folder" ]];then
-
-		# Do nothing, but return 0
-		#   the reason is because since all the folders is initalized in PATHS
-		#   there is no need to check if anything fancy is going on in the pwd, blindfold will be called
-		#   forever, and fileFunc will handle any change in files
-	       return 0;
-	    fi
-	fi
-
-    done
-    return 1
-}
+source ${HOME}/PERSONAL_PROJECTS/watcher/emitter.bash
 
 blindfold() {
 
@@ -127,7 +23,7 @@ blindfold() {
 	printf "%s\n" "install stat then rerun this program"
 	exit 1;
     }
-
+    
     # initialize the size
     declare -A FILESIZE
     # create an array to handle files
@@ -217,17 +113,16 @@ blindfold() {
 		if [[ -f "${list}" ]];then
 
 		    files="${PATHS[$watchingPath]}/${list}"
-		    
 		    fileFunc #"$files"
 
 		    status=$?
-
+		    
 		    (( status == 1 )) && {
 			    # pass in the path were the file was changed as first argument and the file name as second
 			    #   argument, also pass in the file permission
 			event emit newFile "'${PATHS[$watchingPath]}' '${files}'"
 			FILES["$files"]="$files"
-			FILESIZE["$files"]="$(stat --format="%s" "$files" )"
+			FILESIZE["$files"]="$(stat --format="%s" "$files" 2>/dev/null)"
 		    }
 
 		elif [[ -d "${list}" ]];then
@@ -255,26 +150,111 @@ blindfold() {
     done
 }
 
-ne() {
-    echo $1
 
-}
-nf() {
-    echo "new file detected $2"
-    #if [[ "${2##*.}" == 'js' ]];then
-    #	traceur "$2" --out "../we.js"
-    #fi
 
-}
-nd() {
-    echo "new disrectory $2"
-}
-mf() {
+
+getFileStat() {
+
+    local currentFileSize="$(stat --format="%s" "$files" 2>/dev/null)"
+    declare -A FILESTAT
+
+    FILESTAT["group_id"]="$(stat --format="%g" "$files" 2>/dev/null)"
+    FILESTAT["group_name_owner"]="$(stat --format="%G" "$files" 2>/dev/null)"
+
+    FILESTAT["access_right"]="$(stat --format="%a" "$files" 2>/dev/null)"
     
-    for i in "${@}" ;do
-	echo $i
-    done
+    FILESTAT["user_id"]="$(stat --format="%u" "$files" 2>/dev/null)"
+    FILESTAT["user_name_owner"]="$(stat --format="%U" "$files" 2>/dev/null)"
+    
+
+    
+    if (( ${FILESIZE[$files]} != $currentFileSize ));then
+	
+	FILESIZE["$files"]="$currentFileSize" ;# reinitialize the new size of the file and emit modifyFile event
+	
+	# pass in the file name as first argument
+	# group_id as second argument
+	# group_name_owner has third argument
+	# hexadecimal access_right as fourth argument
+	# user_id as fifth argument
+	# user_name_owner as sixth argument
+	# size of file as last argument
+	
+	event emit modifyFile "${files} ${FILESTAT[*]} ${FILESIZE["$files"]}"
+	
+    fi
+    
 }
 
-blindfold "${@}"
 
+fileFunc() {
+
+    if [[ "${#FILES[@]}" -ge 1 ]];then
+
+	for filesInArray in "${FILES[@]}";do
+
+	    # if the was added and for some reason it has been deleted
+	    #    the file no longer exist in the file system
+	    #    but the filename is inside the array
+
+	    if [[ -e "$filesInArray" ]];then
+
+		# files is a local variable in blindfold, but since
+		#     fileFunc is called in blindfold,
+		#    fileFunc now have access to all blindfold local variables
+		#                ***** think closure ****
+		
+		if [[ "$filesInArray" == "$files" ]];then
+		    getFileStat
+		    # since $filesInArray is equal to $files
+		    #   check if file has been changed
+		    #     if it has been changed
+		    #         emit the event
+		    return 0
+		fi
+
+	    else
+
+		# file have been deleted or renamed or moved
+		
+		unset FILES["$filesInArray"]
+		
+		# unsets the size of the file
+		unset FILESIZE["$filesInArray"]
+
+		# emit deleteFile event
+		# only argument is $filesInArray
+		event emit deleteFile "'$filesInArray'"
+		return 5; # Return status of 5
+	    fi
+
+
+	done
+    fi
+    return 1
+
+}
+
+directoryFunc() {
+
+    # The only interesting thing here is the return code
+    for folderInArray in "${PATHS[@]}";do
+
+	if [[ -e "${folderInArray}" ]];then
+	    # folder is a local variable in blindfold, but since
+	    #    directoryFunc is called in blindfold,
+	    #    directoryFunc now have access to all blindfold local variables
+	    #                ***** think closure ****
+	    if [[ "${folderInArray}" == "$folder" ]];then
+
+		# Do nothing, but return 0
+		#   the reason is because since all the folders is initalized in PATHS
+		#   there is no need to check if anything fancy is going on in the pwd, blindfold will be called
+		#   forever, and fileFunc will handle any change in files
+	       return 0;
+	    fi
+	fi
+
+    done
+    return 1
+}
