@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-source ${HOME}/PERSONAL_PROJECTS/watcher/emitter.bash
+source emitter.bash
 
 blindfold() {
 
