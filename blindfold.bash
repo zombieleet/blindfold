@@ -9,6 +9,8 @@ getFileStat() {
 
     FILESTAT["group_id"]="$(stat --format="%g" "$files" )"
     FILESTAT["group_name_owner"]="$(stat --format="%G" "$files" )"
+
+    FILESTAT["access_right"]="$(stat --format="%a" "$files" )"
     
     FILESTAT["user_id"]="$(stat --format="%u" "$files" )"
     FILESTAT["user_name_owner"]="$(stat --format="%U" "$files" )"
@@ -18,15 +20,21 @@ getFileStat() {
     if (( ${FILESIZE[$files]} != $currentFileSize ));then
 
 	FILESIZE["$files"]="$currentFileSize" ;# reinitialize the new size of the file and emit modifyFile event
-
+	
+	# pass in the file name as first argument
+	# group_id as second argument
+	# group_name_owner has third argument
+	# hexadecimal access_right as fourth argument
+	# user_id as fifth argument
+	# user_name_owner as sixth argument
+	# size of file as last argument
+	
 	event emit modifyFile "${files} ${FILESTAT[*]} ${FILESIZE["$files"]}"
+	
     fi
     
 }
 
-getFilePermission() {
-    :
-}
 
 fileFunc() {
 
@@ -57,6 +65,12 @@ fileFunc() {
 	    else
 		# file have been deleted or renamed or moved
 		unset FILES["$filesInArray"]
+		
+		# unsets the size of the file
+		unset FILESIZE["$filesInArray"]
+
+		# emit deleteFile event
+		# only argument is $filesInArray
 		event emit deleteFile "'$filesInArray'"
 		return 5; # Return status of 5
 	    fi
@@ -70,6 +84,7 @@ fileFunc() {
 
 directoryFunc() {
 
+    # The only interesting thing here is the return code
     for folderInArray in "${PATHS[@]}";do
 
 	if [[ -e "${folderInArray}" ]];then
@@ -119,38 +134,55 @@ blindfold() {
     
     declare -A FILES
 
+    #local execCommand
+    
     # Set paths in an Array
     declare -A PATHS
     for paths ;do
 
 	[[ -e "${paths}" ]] && {
 	    which readlink 1>/dev/null
+	    
 	    status=$?
 
 	    (( status == 0 )) && {
 		paths=$(readlink -f "${paths}") ; # eleminate nonsence relative paths
+		#execCommand="readlink -f"
 	    } || {
 		which realpath 1>/dev/null
 		status=$?
 		(( status == 0 )) && {
 		    paths=$(realpath "${paths}"); # eleminate nonsence relative paths
+		    #execCommand=realpath
 		} || {
 		    if [[ "$paths" =~ (../|./|.) ]];then
 			printf "%s\n" "Cannot parse a relative path"
+			printf "%s\n" "relative paths crashes blindfold"
 			printf "%s\n" "install readlink or realpath"
+			#unset execCommand
 			exit 1;
 		    fi
 		}
 	    }
 
-
-	    if [[ -f "${paths}" ]];then
-		FILES["${paths}"]="${paths}"
-		# this elif can be eliminated with a continue statement,
-		#     but to avoid the user specifing a path that is not a file or directory an elif is used
-		#     if an invalid path is found maybe a socket file or a block or character file ,
-		#     blindfold ignores it silently
-	    elif [[ -d "${paths}" ]];then
+	    ###################################################################################################
+	    #if [[ -f "${paths}" ]];then
+	    #
+	    #FILES["${paths}"]="${paths}"
+	    #
+	    #PATHS["$(dirname "${FILES["$paths"]}" )"]=$($execCommand $(dirname ${FILES["${paths}"]}))
+	    #
+	    #
+	    # this elif can be eliminated with a continue statement,
+	    #     but to avoid the user specifing a path that is not a file or directory an elif is used
+	    #     if an invalid path is found maybe a socket file or a block or character file ,
+	    #     blindfold ignores it silently
+	    #     if only a socket file or a block or character file was specified,
+	    #     blindfold gets stuck in an event loop
+	    #     Hit ctrl + c to close
+	    #####################################################################################################
+		
+	    if [[ -d "${paths}" ]];then
 		PATHS["$paths"]="${paths}"
 	    fi
 	} || {
@@ -163,23 +195,29 @@ blindfold() {
     while true;do
 
 	for watchingPath in "${!PATHS[@]}";do
+	    
+	    
+	    if [[ ! -e "${PATHS[$watchingPath]}" ]];then
 
-
-	    if [[ ! -d "${PATHS[$watchingPath]}" ]];then
+		# unset any deleted directory
 		unset PATHS["$watchingPath"]
+
+		# emit deleteFolder event
+
+		# pass in only one argument which is the deleted file name
 		event emit deleteFolder "'${PATHS[$watchingPath]}'"
 		continue ;
 	    fi
-
-
+	    
+	    
 	    cd "${PATHS[$watchingPath]}"
-
+	    
 	    for list in *;do
 
 		if [[ -f "${list}" ]];then
 
 		    files="${PATHS[$watchingPath]}/${list}"
-
+		    
 		    fileFunc #"$files"
 
 		    status=$?
@@ -201,7 +239,11 @@ blindfold() {
 		    status=$?
 
 		    (( status == 1 )) && {
+			
+			# emit the newDir event
+			# pass in the parent directory and the current directory name
 			event emit newDir "'${PATHS[$watchingPath]}' '${folder}'"
+			
 			PATHS["$folder"]="$folder"
 		    }
 		fi
@@ -225,25 +267,14 @@ nf() {
 
 }
 nd() {
-    echo "new directory $2"
+    echo "new disrectory $2"
 }
 mf() {
-    echo "${@}"
-}
-df() {
-
-    echo "file has been deleted $1"
-}
-
-dff() {
-    echo "folder deleted"
+    
+    for i in "${@}" ;do
+	echo $i
+    done
 }
 
-event attach noExist ne
-event attach newFile nf
-event attach newDir nd
-event attach modifyFile mf
-event attach deleteFile df
-event attach deleteFolder dff
 blindfold "${@}"
 
